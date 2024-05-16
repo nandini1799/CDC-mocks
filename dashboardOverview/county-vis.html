@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Detailed County View</title>
+    <link rel="stylesheet" type="text/css" href="style.css" />
+    <script src="https://d3js.org/d3-collection.v1.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Josefin+Sans:ital,wght@0,100..700;1,100..700&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      body,
+      html {
+        margin: auto;
+        padding: 0;
+        height: 100vh;
+      }
+
+      .container {
+        display: flex;
+        flex-wrap: wrap;
+        height: 100vh;
+        justify-content: space-around;
+        align-items: center;
+        background-color: #161625;
+        flex-flow: column;
+      }
+
+      #detailedGraph {
+        /* width: 100%; */
+        /* height: 60vh; */
+        height: 65%;
+        width: 58%;
+        border: 1.5px solid rgba(0, 0, 0, 0.458);
+        box-sizing: border-box;
+        display: flex;
+        justify-content: space-around;
+        align-items: center;
+        border-radius: 2px;
+        border-style: dashed;
+        font-family: "Josefin Sans", sans-serif;
+      }
+
+      #realDataGraph {
+        height: 42%;
+        width: 50%;
+        border: 1.5px solid rgba(0, 0, 0, 0.458);
+        display: flex;
+        justify-content: space-around;
+        align-items: center;
+        box-sizing: border-box;
+        border-radius: 2px;
+        border-style: dashed;
+        font-family: "Josefin Sans", sans-serif;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <div id="detailedGraph">
+        <script>
+          const currentUrl = window.location.href;
+          const currentCounty = window.location.search.split("=")[1];
+          const countyUppercase =
+            currentCounty[0].toUpperCase() + currentCounty.slice(1);
+          console.log(currentUrl, currentCounty);
+
+          d3.csv(
+            "/Counties daily cases/" + currentCounty + "_case_daily.csv"
+          ).then(function (data) {
+            d3.csv(
+              "/RealDataCounties/" + currentCounty.toUpperCase() + "covid19.csv"
+            ).then(function (real_data) {
+              var parseDate = d3.timeParse("%Y-%m-%d");
+              data.forEach(function (d) {
+                d.date = parseDate(d.date);
+              });
+
+              // dimensions for the chart
+              var margin = { top: 25, right: 10, bottom: 20, left: 30 },
+                width = 780 - margin.left - margin.right,
+                height = 450 - margin.top - margin.bottom;
+              var x = d3.scaleTime().range([0, width]);
+              var y = d3.scaleLinear().range([height, 0]);
+
+              var columnsToKeep = [0, 1, 2, 3, 4, 5, 6];
+              var maxAcrossColumns = d3.max(data, function (d) {
+                var maxInRow = d3.max(columnsToKeep, function (column) {
+                  return +d[column];
+                });
+
+                return maxInRow;
+              });
+              console.log("Max across columns:", maxAcrossColumns);
+              console.log("Parsed data:", data);
+
+              const chosenColumn = "cases 7-day averange"; // Change this to the column you want to display on the y-axis
+
+              // Parse the date
+              var parseDate = d3.timeParse("%Y-%m-%d");
+              real_data.forEach(function (d) {
+                d.date = parseDate(d.date);
+                d[chosenColumn] = +d[chosenColumn];
+              });
+
+              ////// aggregate of all data points
+              const aggregate = Math.round(
+                real_data.reduce((total, d) => total + d[chosenColumn], 0)
+              );
+              console.log(
+                `Aggregate value for ${chosenColumn}th day:`,
+                aggregate
+              );
+
+              const maxYValue = d3.max(real_data, (d) => d[chosenColumn]);
+              console.log(Math.round(maxYValue));
+
+              x = d3
+                .scaleTime()
+                .domain(d3.extent(data, (d) => new Date(d.date)))
+                .range([margin.left, width - margin.right]);
+
+              y = d3
+                .scaleLinear()
+                .domain([0, maxYValue])
+                .nice()
+                .range([height - margin.bottom, margin.top]);
+
+              const colors = [
+                "#FF073B",
+                "#27A844",
+                "#0000FF",
+                "#FFFF00",
+                "#FF00FF",
+                "#00FFFF",
+                "#FFA500",
+              ];
+
+              const svg = d3
+                .select("#detailedGraph")
+                .append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr(
+                  "transform",
+                  "translate(" + margin.left + "," + margin.top + ")"
+                )
+                .call(
+                  d3
+                    .zoom()
+                    .scaleExtent([1, 30])
+                    .extent([
+                      [0, 0],
+                      [width, height],
+                    ])
+                    .on("zoom", zoomed)
+                );
+
+              const xAxis = d3.axisBottom(x);
+              const yAxis = d3.axisLeft(y);
+
+              const clipPath = svg
+                .append("defs")
+                .append("clipPath")
+                .attr("id", "clip")
+                .append("rect")
+                .attr("x", x.range()[0])
+                .attr("y", y.range()[0])
+                .attr("width", x.range()[1] - x.range()[0])
+                .attr("height", y.range()[1] - y.range()[0]);
+
+              const chartGroup = svg
+                .append("g")
+                .attr("clip-path", "url(#clip)");
+              const lineGroup = chartGroup.append("g");
+
+              const lines = [];
+              for (let i = 0; i < 7; i++) {
+                lines.push(
+                  d3
+                    .line()
+                    .x((d) => x(new Date(d.date)))
+                    .y((d) => y(d[`${i}`]))
+                    .curve(d3.curveBasis)
+                    .context(null)
+                );
+              }
+
+              const xAxisGroup = svg
+                .append("g")
+                .attr(
+                  "transform",
+                  "translate(0," +
+                    (height - margin.bottom) +
+                    ") translate(-" +
+                    margin.top +
+                    ")"
+                );
+
+              xAxisGroup.call(xAxis);
+              xAxisGroup.selectAll("path").style("stroke", "white"); // Change x-axis line color
+
+              svg.selectAll(".tick line").style("stroke", "white"); // Change x-axis tick lines color
+
+              svg.selectAll(".tick text").style("fill", "white"); // Change x-axis tick label color
+
+              const yAxisGroup = svg
+                .append("g")
+                .attr("transform", "translate(0,0)");
+              yAxisGroup
+                .call(d3.axisLeft(y).ticks(height / 40))
+                .call((g) => g.select(".domain").remove())
+                .call((g) =>
+                  g
+                    .selectAll(".tick line")
+                    .clone()
+                    .attr("x2", width)
+                    .attr("stroke", "#2B2B39") // Change guide line color
+                    .attr("stroke-opacity", 0.1)
+                )
+                .call((g) =>
+                  g
+                    .append("text")
+                    .attr("x", -margin.left)
+                    .attr("y", 10)
+                    .attr("fill", "white")
+                );
+
+              svg.selectAll(".tick line").style("stroke", "white");
+
+              svg.selectAll(".tick text").style("fill", "white");
+              svg
+                .append("text")
+                .attr("x", -25)
+                .attr("y", 10)
+                .text("Weekly Cases: " + currentCounty.toUpperCase())
+                .style("font-size", "16px")
+                .style("fill", "white");
+
+              chartGroup.append("g").selectAll("path").data(lines).join("path");
+
+              const legend = svg
+                .selectAll(".legend")
+                .data(data.columns.slice(1))
+                .enter()
+                .append("g")
+                .attr("transform", function (d, i) {
+                  return "translate(0," + i * 20 + ")";
+                })
+                .on("click", function (d, i) {
+                  // Toggle the opacity of lines based on the "active" class
+                  const isActive = d3.select(this).classed("active");
+                  d3.select(this).classed("active", !isActive);
+
+                  d3.select("#path_" + i)
+                    .transition()
+                    .duration(1200)
+                    .style("opacity", !isActive ? 1 : 0); // Adjust opacity based on active status
+                  console.log(`button ${i}`);
+                  console.log(isActive);
+                });
+
+              legend
+                .append("rect")
+                .attr("x", width - 15)
+                .attr("width", 18)
+                .attr("height", 18)
+                .style("fill", function (d, i) {
+                  if (i == 0) return colors[i];
+                  return "gray";
+                })
+                .attr("opacity", function (d, i) {
+                  if (i == 0) return 1;
+                  return 0.2;
+                })
+                .style("cursor", "pointer")
+                .on("click", function (d, i) {
+                  // Toggle the stroke of lines based on the "active" class
+                  const isActive = d3.select(this).classed("active");
+                  d3.select(this).classed("active", !isActive);
+
+                  d3.select(this)
+                    .transition()
+                    .duration(1000)
+                    .style("fill", !isActive ? colors[i] : "gray")
+                    .style("opacity", !isActive ? 1 : 0.2);
+
+                  d3.select("#path_" + i)
+                    .transition()
+                    .duration(1000)
+                    .style("opacity", !isActive ? 1 : 0);
+
+                  console.log(`button ${i}`);
+                  console.log(isActive);
+                });
+
+              legend
+                .append("text")
+                .attr("x", width - 19)
+                .attr("y", 9)
+                .attr("dy", "0.35em")
+                .text((d, i) => `Day ${i + 1}`, "white")
+                .style("text-anchor", "end")
+                .style("fill", "white")
+                .style("font-family", "Josefin Sans")
+                .style("font-size", "12px");
+
+              /////data point corresponding to the maximum value
+              const maxDataPoint = real_data.find(
+                (d) => d[chosenColumn] === maxYValue
+              );
+              console.log("Max Data Point:", maxDataPoint);
+
+              //   const y = d3
+              //     .scaleLinear()
+              //     .domain([0, d3.max(data, (d) => d[chosenColumn])])
+              //     .nice()
+              //     .range([height, 0]);
+
+              line = d3
+                .line()
+                .defined((d) => !isNaN(d[chosenColumn]))
+                .x((d) => x(d.date))
+                .y((d) => y(d[chosenColumn]));
+
+              const linePaths = chartGroup
+                .selectAll(".line")
+                .data(lines)
+                .enter()
+                .append("path")
+                .attr("class", "line")
+                .style("fill", "none")
+                .attr("stroke-width", 2)
+                .style("stroke", (d, i) => colors[i])
+                .each(function (lineFunction, index) {
+                  d3.select(this).attr("d", lineFunction(data));
+                });
+              svg
+                .append("path")
+                .datum(real_data)
+                .attr("fill", "none")
+                .attr("stroke", "white")
+                .attr("stroke-linejoin", "round")
+                .attr("stroke-linecap", "round")
+                .attr("stroke-width", 1.5)
+                .attr("d", line);
+
+              for (let i = 0; i < 7; i++) {
+                svg
+                  .append("path")
+                  .attr("id", "path_" + i)
+                  .datum(data)
+                  .attr("fill", "none")
+                  .attr("stroke", colors[i])
+                  .attr("stroke-width", 2)
+                  .attr(
+                    "d",
+                    d3
+                      .line()
+                      .x((d) => x(new Date(d.date)))
+                      .y((d) => y(d[`${i}`]))
+                      .curve(d3.curveBasis)
+                      .context(null)
+                  )
+                  .style("opacity", 0)
+                  .on("click", function (d, i) {
+                    const isActive = d3.select(this).classed("active");
+                    const obj = d3.select(this);
+
+                    console.log(obj, isActive);
+                    obj
+                      .classed("active", !isActive)
+                      .style("opacity", isActive ? 1 : 0)
+                      .on("click", function (d, i) {
+                        handleZoom(i);
+                      });
+                  });
+
+                function handleZoom(i, event) {
+                  zoomed(event, i);
+                }
+              }
+              svg
+                .select("#path_0")
+                .classed("class", "active")
+                .style("opacity", 1);
+
+              function zoomed(event, i) {
+                console.log("zoom event", event);
+                const { transform } = event;
+                const newX = transform.rescaleX(x);
+                const newY = transform.rescaleY(y);
+
+                xAxisGroup.call(xAxis.scale(newX));
+                yAxisGroup.call(yAxis.scale(newY));
+
+                xAxisGroup.selectAll(".tick line").style("stroke", "white");
+                xAxisGroup.selectAll(".tick text").style("fill", "white");
+
+                yAxisGroup.selectAll(".tick line").style("stroke", "white");
+                yAxisGroup.selectAll(".tick text").style("fill", "white");
+
+                yAxisGroup.call(d3.axisLeft(newY).ticks(height / 40));
+                yAxisGroup
+                  .selectAll(".tick line")
+                  .clone()
+                  .attr("x2", width)
+                  .attr("stroke", "#2B2B39")
+                  .attr("stroke-opacity", 0.01);
+
+                const clipWidth = x.range()[1] - x.range()[0];
+                const clipHeight = Math.abs(
+                  (y.range()[1] - y.range()[0]) * Math.max(0, transform.k)
+                );
+                const positiveClipHeight = Math.max(0, clipHeight);
+
+                clipPath
+                  .select("rect")
+                  .attr("width", clipWidth)
+                  .attr("height", positiveClipHeight)
+                  .attr(
+                    "transform",
+                    `translate(0, ${height - positiveClipHeight})`
+                  );
+
+                chartGroup.attr("transform", transform);
+
+                console.log(data);
+                // chartGroup.selectAll("path").attr("transform", transform);
+                // linePaths
+                //   .selectAll(".line")
+                //   .data(data)
+                //   .attr("d", function (d, i) {
+                //     return lines[i](
+                //       d.map(function (point) {
+                //         return {
+                //           date: newX(point.date),
+                //           value: newY(point[i]),
+                //         };
+                //         console.log("new y-axis", newY(point[i]));
+                //         console.log("new x-axis", newX(point.date));
+                //       })
+                //     );
+                //   });
+                linePaths
+                  .selectAll("path")
+                  .data(data)
+                  .attr("d", function (d, i) {
+                    // Ensure lines array has valid line generator functions
+                    if (!line[i]) {
+                      console.error(
+                        `Line generator at index ${i} is not defined.`
+                      );
+                      console.log(
+                        "line Path log ",
+                        linePaths.selectAll("path")
+                      );
+                      return ""; // Return empty path data
+                    }
+
+                    const dataArray = [];
+                    for (let j = 0; j < 7; j++) {
+                      dataArray.push({
+                        date: d.date,
+                        value: +d[j] || 0,
+                      });
+                    }
+
+                    // Transformation logic
+                    const transformedData = dataArray.map(function (point) {
+                      return {
+                        date: newX(point.date),
+                        value: newY(point.value),
+                      };
+                    });
+
+                    // Return the path data
+                    return lines[i](transformedData);
+                  });
+
+                chartGroup.selectAll(".line").remove();
+                chartGroup
+                  .selectAll("path")
+                  .data(lines)
+                  .enter()
+                  .append("path")
+                  .attr("class", "line")
+                  .attr("d", function (d) {
+                    return d(data);
+                  })
+                  .style("stroke", function (d, i) {
+                    return colors[i];
+                  });
+
+                console.log(lineGroup);
+
+                const lines = data.map((e, i) => {
+                  console.log("test data", e, i);
+                  return d3
+                    .line()
+                    .x((d) => x(new Date(d.date)))
+                    .y((d) => y(d[`${i}`]))
+                    .curve(d3.curveBasis);
+                });
+                console.log(
+                  "Line paths after update:",
+                  chartGroup.selectAll(".line")
+                );
+              }
+            });
+          });
+        </script>
+      </div>
+      <!-- 
+      <div id="realDataGraph">
+        <script>
+          d3.csv("/RealDataCounties/"+currentCounty.toUpperCase()+"covid19.csv").then(function (data) {
+            
+
+            const svg = d3
+              .select("#realDataGraph")
+              .append("svg")
+              .attr("width", width + margin.left + margin.right)
+              .attr("height", height + margin.top + margin.bottom)
+              .append("g")
+              .attr(
+                "transform",
+                "translate(" + margin.left + "," + margin.top + ")"
+              );
+
+            svg
+              .append("g")
+              .attr("transform", "translate(0," + height + ")")
+              .call(d3.axisBottom(x))
+              .selectAll("path")
+              .style("stroke", "white");
+
+            svg.selectAll(".tick line").style("stroke", "white");
+            svg.selectAll(".tick text").style("fill", "white");
+
+            svg
+              .append("g")
+              .call(d3.axisLeft(y))
+              .selectAll("path")
+              .style("stroke", "#161625");
+
+            svg.selectAll(".tick line").style("stroke", "white");
+            svg.selectAll(".tick text").style("fill", "white");
+
+            svg
+              .append("path")
+              .datum(data)
+              .attr("fill", "none")
+              .attr("stroke", "#0953A8")
+              .attr("stroke-linejoin", "round")
+              .attr("stroke-linecap", "round")
+              .attr("stroke-width", 1.5)
+              .attr("d", line);
+
+            // svg
+            //   .append("text")
+            //   .attr("x", width / 2 - 60)
+            //   .attr("y", 18)
+            //   .attr("text-anchor", "middle")
+            //   .style("font-size", "12px")
+            //   .style("fill", "WHITE")
+            //   .style("font-family", "Josefin Sans")
+            //   .text("AIKEN");
+
+            ///// adding a circle for highest number of cases
+
+            // svg
+            //   .append("circle")
+            //   .attr("cx", x(maxDataPoint.date)) // x-coordinate
+            //   .attr("cy", y(maxYValue)) // y-coordinate
+            //   .attr("r", 3)
+            //   .attr("fill", "#777BFF");
+
+            // svg
+            //   .append("text")
+            //   .attr("x", x(maxDataPoint.date))
+            //   .attr("y", y(maxYValue) - 8) // Adjust the position to be above the circle
+            //   .attr("text-anchor", "middle")
+            //   .text(Math.round(maxYValue))
+            //   .style("font-size", "10px")
+            //   .style("fill", "white");
+
+            // svg
+            //   .append("text")
+            //   .attr("x", -25)
+            //   .attr("y", -14)
+            //   .text("Cases 7-day average: "+currentCounty.toUpperCase())
+            //   .style("font-size", "14px")
+            //   .style("fill", "white");
+
+            /////// adding total number of cases for county for that day
+
+            // svg
+            //   .append("text")
+            //   .attr("x", width / 2 - 60)
+            //   .attr("y", 35) // Adjust the y-coordinate to position it below the existing text
+            //   .attr("text-anchor", "middle")
+            //   .style("font-size", "12px")
+            //   .style("fill", "#0953A8")
+            //   .style("font-family", "Josefin Sans")
+            //   .text(`(${aggregate})`)
+            //   .attr("title", "Total cases");
+          });
+        </script>
+      </div> -->
+    </div>
+  </body>
+</html>
